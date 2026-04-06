@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Soft Book Reader</title>
+  <style>
+    :root {
+      --bg-1: #fff5ea; --bg-2: #f4ebe3;
+      --card: rgba(255,251,246,0.82);
+      --line: #eadbce; --text: #3c302a; --muted: #7a6a61;
+      --accent: #b87a49; --accent-deep: #935b31; --accent-soft: #fff1de;
+      --shadow: 0 18px 42px rgba(99,65,39,0.12);
+      --radius-xl: 30px; --radius-lg: 22px; --radius-md: 16px;
+    }
+    * { box-sizing: border-box; }
+    html,body { margin:0; min-height:100%; font-family:Inter,Arial,sans-serif; color:var(--text);
+      background:radial-gradient(circle at top,var(--bg-1) 0%,#f8f0e8 28%,var(--bg-2) 100%); }
+    body { padding:24px 16px 40px; }
+    .shell { width:min(1200px,100%); margin:0 auto; display:grid;
+      grid-template-columns:330px 1fr; gap:20px; align-items:start; }
+    .panel,.reader { background:var(--card); border:1px solid rgba(234,219,206,0.9);
+      border-radius:var(--radius-xl); box-shadow:var(--shadow); backdrop-filter:blur(10px); }
+    .panel { padding:22px; position:sticky; top:16px; }
+    .reader { overflow:hidden; }
+    .title-row { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+    .title-badge { width:46px; height:46px; border-radius:16px; display:grid;
+      place-items:center; background:#ffe8c8; font-size:22px; }
+    h1 { margin:0; font-size:1.7rem; letter-spacing:-0.03em; }
+    .soft { margin:0; color:var(--muted); font-size:0.95rem; line-height:1.6; }
+    .group { margin-top:18px; }
+    label { display:block; margin-bottom:8px; font-size:0.92rem; font-weight:600; color:var(--text); }
+    select,input,button { width:100%; font:inherit; border-radius:var(--radius-md);
+      border:1px solid var(--line); padding:12px 14px; color:var(--text); }
+    select,input { background:rgba(255,255,255,0.9); }
+    button { background:white; cursor:pointer;
+      transition:transform 0.18s ease,border-color 0.18s ease,background 0.18s ease; }
+    button:hover { transform:translateY(-1px); border-color:#d7bda8; }
+    .primary { background:var(--accent); border-color:var(--accent); color:white; }
+    .primary:hover { background:var(--accent-deep); border-color:var(--accent-deep); }
+    .btn-active { background:#2d6a2d!important; border-color:#2d6a2d!important; color:white!important; }
+    .row { display:grid; grid-template-columns:1fr auto; gap:10px; }
+    .three { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+    .voice-box,.hint-box,.upload-box { margin-top:18px; border-radius:var(--radius-lg); padding:16px; }
+    .voice-box { background:var(--accent-soft); border:1px solid #f0d2ae; }
+    .upload-box { background:#fffaf3; border:1px solid #ecd7c0; }
+    .hint-box { background:#312720; color:#f7eee6; line-height:1.6; font-size:0.9rem; }
+    .drop-zone { margin-top:10px; min-height:86px; border-radius:18px;
+      border:1.5px dashed #d7b490; background:#fff6ea; color:#7b5b42;
+      display:grid; place-items:center; text-align:center; padding:16px; cursor:pointer;
+      transition:background 0.18s,border-color 0.18s,transform 0.18s; }
+    .drop-zone.active { background:#ffeccc; border-color:var(--accent); transform:scale(0.995); }
+    #pdfUpload { display:none; }
+    .mini { margin-top:8px; color:var(--muted); font-size:0.82rem; line-height:1.5; }
+    .range-row { margin-top:14px; }
+    .range-top { display:flex; justify-content:space-between; gap:12px;
+      margin-bottom:8px; font-size:0.9rem; }
+    input[type="range"] { padding:0; border:0; background:transparent; }
+    .reader-head { padding:22px 24px; border-bottom:1px solid rgba(234,219,206,0.85);
+      background:rgba(255,255,255,0.38); }
+    .reader-head h2 { margin:0; font-size:1.3rem; letter-spacing:-0.02em; }
+    .reader-head p { margin:8px 0 0; color:var(--muted); font-size:0.92rem; line-height:1.6; }
+
+    .pdf-wrap { padding:22px; min-height:70vh; background:#f7efe7;
+      display:flex; justify-content:center; align-items:flex-start; position:relative; }
+
+    /* canvas + SVG stacked */
+    .canvas-stage { position:relative; display:inline-block; line-height:0;
+      border-radius:18px; overflow:hidden; box-shadow:0 12px 30px rgba(64,41,25,0.12); }
+    .page-canvas { display:block; max-width:100%; height:auto!important; background:white; }
+    #hlOverlay { position:absolute; top:0; left:0; width:100%; height:100%;
+      pointer-events:none; overflow:visible; }
+    #hlOverlay.mark-mode { pointer-events:none; } /* clicks go through to canvasStage */
+
+    /* live word highlight (speech) */
+    .hl-word { fill:#ffd740; fill-opacity:0.55; }
+    /* manual pinned markers */
+    .hl-mark { fill:#ffd740; fill-opacity:0.38; cursor:pointer; pointer-events:all; }
+    .hl-mark:hover { fill-opacity:0.7; }
+
+    .read-badge { position:absolute; top:30px; right:30px; background:#ffd740;
+      color:#3c2800; font-size:0.8rem; font-weight:700; padding:6px 14px;
+      border-radius:20px; box-shadow:0 2px 8px rgba(180,130,0,0.18);
+      pointer-events:none; opacity:0; transition:opacity 0.3s; z-index:10; }
+    .read-badge.visible { opacity:1; }
+
+    .loading,.error-box { width:100%; min-height:240px; display:grid;
+      place-items:center; text-align:center; padding:20px; color:var(--muted); line-height:1.7; }
+    .error-box { color:#9d3f3f; }
+
+    /* highlight toolbar */
+    .hl-toolbar { margin:0 22px; padding:10px 14px; border-radius:var(--radius-lg);
+      border:1px solid var(--line); background:#fffbf4;
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:0.88rem; }
+    .hl-toolbar span { color:var(--muted); }
+    .hl-toolbar button { width:auto; padding:6px 14px; font-size:0.85rem; }
+    .hl-mode-on { background:#ffd740!important; border-color:#e6b800!important; color:#3c2800!important; }
+
+    .text-box { margin:14px 22px 22px; padding:16px; border-radius:var(--radius-lg);
+      border:1px solid var(--line); background:#fbf7f3; }
+    .text-box h3 { margin:0 0 8px; font-size:0.95rem; }
+    .text-preview { max-height:160px; overflow:auto; white-space:pre-wrap;
+      line-height:1.7; color:var(--muted); font-size:0.92rem; }
+
+    .auto-row { display:flex; align-items:center; gap:10px; margin-top:10px; }
+    .toggle-switch { position:relative; width:44px; height:24px; flex-shrink:0; }
+    .toggle-switch input { opacity:0; width:0; height:0; }
+    .toggle-slider { position:absolute; inset:0; background:#ccc;
+      border-radius:24px; cursor:pointer; transition:background 0.2s; }
+    .toggle-slider::before { content:''; position:absolute; width:18px; height:18px;
+      left:3px; top:3px; background:white; border-radius:50%; transition:transform 0.2s; }
+    .toggle-switch input:checked + .toggle-slider { background:var(--accent); }
+    .toggle-switch input:checked + .toggle-slider::before { transform:translateX(20px); }
+    .toggle-label { font-size:0.88rem; color:var(--muted); }
+
+    .page-strip { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px;
+      max-height:80px; overflow-y:auto; }
+    .page-dot { width:28px; height:28px; border-radius:8px; border:1.5px solid var(--line);
+      background:white; font-size:0.7rem; font-weight:600; display:grid;
+      place-items:center; cursor:pointer; color:var(--muted);
+      transition:background 0.15s,border-color 0.15s; flex-shrink:0; }
+    .page-dot.read  { background:#ffd740; border-color:#e6b800; color:#3c2800; }
+    .page-dot.current { border-color:var(--accent); color:var(--accent); font-weight:800; }
+    .page-dot.read.current { background:#ffd740; border-color:var(--accent); color:#3c2800; }
+
+    .wakelock-status { font-size:0.78rem; color:var(--muted); margin-top:6px;
+      display:flex; align-items:center; gap:5px; }
+    .wakelock-dot { width:8px; height:8px; border-radius:50%; background:#bbb; display:inline-block; }
+    .wakelock-dot.active { background:#4caf50; }
+
+    @media(max-width:980px){.shell{grid-template-columns:1fr}.panel{position:static}}
+    @media(max-width:640px){
+      .row,.three{grid-template-columns:1fr}
+      .panel,.reader-head{padding:18px}
+      .pdf-wrap{padding:12px}
+      .text-box,.hl-toolbar{margin-left:12px;margin-right:12px}
+    }
+  </style>
+</head>
+<body>
+<main class="shell">
+
+  <aside class="panel">
+    <div class="title-row">
+      <div class="title-badge">📖</div>
+      <div><h1>Soft Book Reader</h1></div>
+    </div>
+    <p class="soft">Cozy PDF reader — live word highlight, auto-advance, warm voice.</p>
+
+    <section class="group">
+      <label for="bookSelect">Choose book</label>
+      <select id="bookSelect"></select>
+      <div class="mini">Edit the BOOKS array in this file to list your PDFs.</div>
+    </section>
+
+    <section class="upload-box">
+      <label>Open your own PDF</label>
+      <input id="pdfUpload" type="file" accept="application/pdf" />
+      <div class="drop-zone" id="dropZone">📂 Tap or drag a PDF — only .pdf files accepted.</div>
+    </section>
+
+    <section class="group">
+      <label for="pageInput">Go to page</label>
+      <div class="row">
+        <input id="pageInput" type="number" min="1" step="1" placeholder="Page #" value="1" />
+        <button id="openPageBtn" class="primary">Open</button>
+      </div>
+      <div class="mini" id="pageStatus">Page 1 of —</div>
+    </section>
+
+    <section class="group three">
+      <button id="prevBtn">Prev</button>
+      <button id="nextBtn">Next</button>
+      <button id="resetBtn">Reset</button>
+    </section>
+
+    <section class="group">
+      <label>Pages <span style="font-weight:400;color:var(--muted);font-size:0.82rem;">(🟡 = read)</span></label>
+      <div class="page-strip" id="pageStrip"></div>
+    </section>
+
+    <section class="voice-box">
+      <label for="voiceSelect">Voice</label>
+      <select id="voiceSelect"></select>
+      <div class="range-row">
+        <div class="range-top"><span>Speed</span><span id="speedValue">1.00x</span></div>
+        <input id="speedRange" type="range" min="0.5" max="2.0" step="0.05" value="1.0" />
+      </div>
+      <div class="range-row">
+        <div class="range-top"><span>Warm tone</span><span id="pitchValue">1.00</span></div>
+        <input id="pitchRange" type="range" min="0.5" max="2.0" step="0.05" value="1.0" />
+      </div>
+      <div class="auto-row">
+        <label class="toggle-switch">
+          <input type="checkbox" id="autoAdvance" />
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="toggle-label">Auto-advance to next page</span>
+      </div>
+      <section class="group three">
+        <button id="speakBtn" class="primary">Read</button>
+        <button id="pauseBtn">Pause</button>
+        <button id="stopBtn">Stop</button>
+      </section>
+      <div class="wakelock-status">
+        <span class="wakelock-dot" id="wakeDot"></span>
+        <span id="wakeText">Screen lock: checking…</span>
+      </div>
+    </section>
+
+    <section class="hint-box">
+      List PDFs in the <strong>BOOKS</strong> array at top of script.<br/><br/>
+      🟡 Yellow dot = page already read.<br/>
+      🔤 Yellow rect = live word while reading.<br/>
+      ✏️ Enable <em>Mark mode</em> then click any word to pin a yellow marker. Click a marker to remove it.
+    </section>
+  </aside>
+
+  <section class="reader">
+    <div class="reader-head">
+      <h2 id="bookTitle">Your Book</h2>
+      <p>Single-file static PDF reader — no build step, no framework.</p>
+    </div>
+
+    <div class="pdf-wrap" id="pdfWrap">
+      <div class="loading" id="viewerMessage">Opening book…</div>
+      <div class="canvas-stage" id="canvasStage" hidden>
+        <canvas id="pdfCanvas" class="page-canvas"></canvas>
+        <svg id="hlOverlay" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <div class="read-badge" id="readBadge">✔ Already Read</div>
+    </div>
+
+    <div class="hl-toolbar">
+      <span>Markers:</span>
+      <button id="hlModeBtn">✏️ Mark mode: OFF</button>
+      <button id="hlClearBtn">🗑 Clear page</button>
+      <span id="hlHint" style="font-size:0.82rem;"></span>
+    </div>
+
+    <div class="text-box">
+      <h3>Text from current page</h3>
+      <div class="text-preview" id="textPreview">Open a page and text appears here.</div>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
+
+// ── BOOK LIST — add your PDFs here ────────────────────────────────────────────
+const BOOKS = [
+  { title: 'Little Prince', file: './pdfs/little-prince.pdf' },
+  { title: 'Poem Book',     file: './pdfs/poem-book.pdf'     },
+];
+
+// ── DOM ───────────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const bookSelect=$('bookSelect'), pdfUpload=$('pdfUpload'), dropZone=$('dropZone');
+const pageInput=$('pageInput'), openPageBtn=$('openPageBtn');
+const prevBtn=$('prevBtn'), nextBtn=$('nextBtn'), resetBtn=$('resetBtn');
+const pageStatus=$('pageStatus'), voiceSelect=$('voiceSelect');
+const speedRange=$('speedRange'), pitchRange=$('pitchRange');
+const speedValue=$('speedValue'), pitchValue=$('pitchValue');
+const speakBtn=$('speakBtn'), pauseBtn=$('pauseBtn'), stopBtn=$('stopBtn');
+const bookTitle=$('bookTitle'), viewerMsg=$('viewerMessage');
+const canvasStage=$('canvasStage'), pdfCanvas=$('pdfCanvas'), hlOverlay=$('hlOverlay');
+const pdfWrap=$('pdfWrap'), textPreview=$('textPreview');
+const autoAdvance=$('autoAdvance'), readBadge=$('readBadge'), pageStrip=$('pageStrip');
+const wakeDot=$('wakeDot'), wakeText=$('wakeText');
+const hlModeBtn=$('hlModeBtn'), hlClearBtn=$('hlClearBtn'), hlHint=$('hlHint');
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let pdfDoc=null, currentPage=1, currentText='', voices=[], isPaused=false;
+let wakeLock=null, readPages=new Set(), currentBookKey='';
+let wordRects=[];         // [{str,x,y,w,h}] canvas-pixel coords for current page
+let allMarkers=new Map(); // bookKey → Map<pageNum → [{x,y,w,h}]>
+let hlWordEl=null;        // SVG rect for live spoken word
+let markModeOn=false;
+let renderScale=1;
+// Each utterance captures speakGen at start; callbacks bail if it changed.
+let speakGen=0;
+
+// ── WAKE LOCK ─────────────────────────────────────────────────────────────────
+async function requestWakeLock(){
+  if(!('wakeLock' in navigator)){wakeText.textContent='Screen lock: not supported';return;}
+  try{
+    wakeLock=await navigator.wakeLock.request('screen');
+    wakeDot.classList.add('active');
+    wakeText.textContent='Screen lock: active — audio plays in pocket';
+    wakeLock.addEventListener('release',()=>{
+      wakeDot.classList.remove('active');
+      wakeText.textContent='Screen lock: released';
+      wakeLock=null;
+    });
+  }catch(e){wakeText.textContent='Screen lock: unavailable';}
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible'&&!wakeLock)requestWakeLock();
+});
+requestWakeLock();
+
+// ── READ-PAGE TRACKING ────────────────────────────────────────────────────────
+function loadReadPages(key){
+  currentBookKey=key;
+  try{const s=sessionStorage.getItem('rp_'+key);readPages=s?new Set(JSON.parse(s)):new Set();}
+  catch{readPages=new Set();}
+}
+function saveReadPages(){
+  try{sessionStorage.setItem('rp_'+currentBookKey,JSON.stringify([...readPages]));}catch{}
+}
+function markPageRead(n){readPages.add(n);saveReadPages();updateReadBadge();updatePageStrip();}
+
+// ── MARKER STORE ─────────────────────────────────────────────────────────────
+function getPageMarkers(){
+  if(!allMarkers.has(currentBookKey))allMarkers.set(currentBookKey,new Map());
+  const bm=allMarkers.get(currentBookKey);
+  if(!bm.has(currentPage))bm.set(currentPage,[]);
+  return bm.get(currentPage);
+}
+function saveMarkers(){
+  try{
+    const bm=allMarkers.get(currentBookKey);if(!bm)return;
+    const obj={};bm.forEach((r,p)=>{obj[p]=r;});
+    sessionStorage.setItem('mk_'+currentBookKey,JSON.stringify(obj));
+  }catch{}
+}
+function loadMarkers(key){
+  try{
+    const s=sessionStorage.getItem('mk_'+key);if(!s)return;
+    const obj=JSON.parse(s);const bm=new Map();
+    Object.entries(obj).forEach(([p,r])=>bm.set(Number(p),r));
+    allMarkers.set(key,bm);
+  }catch{}
+}
+
+// ── VOICES ────────────────────────────────────────────────────────────────────
+function setupVoices(){
+  voices=window.speechSynthesis?window.speechSynthesis.getVoices():[];
+  voiceSelect.innerHTML='';
+  voices.forEach((v,i)=>{
+    const o=document.createElement('option');
+    o.value=i; o.textContent=`${v.name} (${v.lang})`;
+    voiceSelect.appendChild(o);
+  });
+  let idx=voices.findIndex(v=>/google uk english female/i.test(v.name));
+  if(idx<0)idx=voices.findIndex(v=>/google.*english.*female/i.test(v.name));
+  if(idx<0)idx=voices.findIndex(v=>/en[-_]gb/i.test(v.lang));
+  if(idx<0)idx=voices.findIndex(v=>/en/i.test(v.lang));
+  if(voices.length)voiceSelect.value=String(Math.max(0,idx));
+  speedRange.value='1.0'; speedValue.textContent='1.00x';
+  pitchRange.value='1.0'; pitchValue.textContent='1.00';
+}
+function setupBooks(){
+  bookSelect.innerHTML='';
+  BOOKS.forEach((b,i)=>{
+    const o=document.createElement('option');
+    o.value=i; o.textContent=b.title;
+    bookSelect.appendChild(o);
+  });
+}
+
+// ── UI HELPERS ────────────────────────────────────────────────────────────────
+function showMessage(msg,isError=false){
+  viewerMsg.hidden=false; viewerMsg.textContent=msg;
+  viewerMsg.className=isError?'error-box':'loading';
+  canvasStage.hidden=true;
+}
+function showCanvas(){ viewerMsg.hidden=true; canvasStage.hidden=false; }
+function updatePageStatus(){ pageStatus.textContent=`Page ${currentPage} of ${pdfDoc?pdfDoc.numPages:'—'}`; }
+function updateReadBadge(){ readBadge.classList.toggle('visible',readPages.has(currentPage)); }
+function updatePageStrip(){
+  if(!pdfDoc)return;
+  pageStrip.innerHTML='';
+  for(let i=1;i<=pdfDoc.numPages;i++){
+    const d=document.createElement('button');
+    d.className='page-dot'+(readPages.has(i)?' read':'')+(i===currentPage?' current':'');
+    d.textContent=i; d.title=`Page ${i}${readPages.has(i)?' (read)':''}`;
+    d.addEventListener('click',()=>goToPage(i));
+    pageStrip.appendChild(d);
+  }
+}
+
+// ── WORD RECTS ────────────────────────────────────────────────────────────────
+// Build [{str,x,y,w,h}] from PDF.js text content, mapped to canvas-pixel space.
+// PDF y-axis is bottom-up; canvas is top-down — we flip with (canH - ty*scale - fontH).
+async function buildWordRects(page,viewport){
+  const content=await page.getTextContent();
+  wordRects=[];
+  const canH=viewport.height;
+  for(const item of content.items){
+    if(!item.str||!item.str.trim())continue;
+    const [,,,d,tx,ty]=item.transform;
+    const fontH=Math.abs(d)*renderScale;
+    const itemX=tx*renderScale;
+    const itemY=canH-(ty*renderScale)-fontH;
+    const itemW=(item.width||0)*renderScale;
+    const total=item.str.length;
+    let offset=0;
+    for(const part of item.str.split(/(\s+)/)){
+      if(!part.trim()){offset+=part.length;continue;}
+      const x0=total>0?offset/total:0;
+      const x1=total>0?(offset+part.length)/total:1;
+      wordRects.push({
+        str:part,
+        x:itemX+x0*itemW, y:itemY,
+        w:Math.max((x1-x0)*itemW,4), h:Math.max(fontH*1.3,10),
+      });
+      offset+=part.length;
+    }
+  }
+}
+
+// ── SVG OVERLAY ───────────────────────────────────────────────────────────────
+function syncOverlay(){
+  hlOverlay.setAttribute('viewBox',`0 0 ${pdfCanvas.width} ${pdfCanvas.height}`);
+}
+function makeSvgRect(x,y,w,h,cls){
+  const r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  r.setAttribute('x',x); r.setAttribute('y',y);
+  r.setAttribute('width',Math.max(w,4)); r.setAttribute('height',Math.max(h,8));
+  r.setAttribute('rx',3); r.setAttribute('ry',3);
+  r.setAttribute('class',cls);
+  return r;
+}
+function clearWordHighlight(){ if(hlWordEl){hlWordEl.remove();hlWordEl=null;} }
+function highlightWord(idx){
+  clearWordHighlight();
+  if(idx<0||idx>=wordRects.length)return;
+  const r=wordRects[idx];
+  hlWordEl=makeSvgRect(r.x,r.y,r.w,r.h,'hl-word');
+  hlOverlay.appendChild(hlWordEl);
+}
+function redrawMarkers(){
+  hlOverlay.querySelectorAll('.hl-mark').forEach(el=>el.remove());
+  // Snapshot array so splice indices don't drift during event handling
+  const markers=getPageMarkers();
+  [...markers].forEach((r,idx)=>{
+    const rect=makeSvgRect(r.x,r.y,r.w,r.h,'hl-mark');
+    rect.addEventListener('click',e=>{
+      e.stopPropagation();
+      markers.splice(idx,1); saveMarkers(); redrawMarkers();
+    });
+    hlOverlay.appendChild(rect);
+  });
+}
+
+// ── RENDER PAGE ───────────────────────────────────────────────────────────────
+async function renderPage(pageNumber){
+  if(!pdfDoc)return;
+  const page=await pdfDoc.getPage(pageNumber);
+  const baseVp=page.getViewport({scale:1});
+  const wrapW=Math.max(280,pdfWrap.clientWidth-44);
+  renderScale=Math.min(wrapW/baseVp.width,1.6)*1.25;
+  const viewport=page.getViewport({scale:renderScale});
+
+  const ctx=pdfCanvas.getContext('2d');
+  pdfCanvas.width=viewport.width; pdfCanvas.height=viewport.height;
+  syncOverlay();
+  hlOverlay.innerHTML=''; // wipe previous highlights + markers overlay (redrawn below)
+
+  showCanvas();
+  await page.render({canvasContext:ctx,viewport}).promise;
+  await buildWordRects(page,viewport);
+
+  currentText=wordRects.map(w=>w.str).join(' ').replace(/\s+/g,' ').trim();
+  textPreview.textContent=currentText||'No readable text on this page.';
+  updatePageStatus(); updateReadBadge(); updatePageStrip(); redrawMarkers();
+}
+
+// ── PDF LOADING ───────────────────────────────────────────────────────────────
+async function loadPdfFromSource(source,title,key){
+  // Invalidate any in-flight speech / auto-advance before touching any state
+  speakGen++;
+  if(window.speechSynthesis) window.speechSynthesis.cancel();
+  isPaused=false; clearWordHighlight();
+  speakBtn.classList.remove('btn-active');
+
+  currentPage=1; pageInput.value='1'; currentText=''; wordRects=[];
+  textPreview.textContent='Loading…'; bookTitle.textContent=title;
+  showMessage('Opening book…');
+  loadReadPages(key); loadMarkers(key);
+
+  pdfDoc=await pdfjsLib.getDocument(source).promise;
+  updatePageStatus();
+  await renderPage(currentPage);
+}
+
+async function loadBook(i){
+  await loadPdfFromSource(BOOKS[i].file, BOOKS[i].title, 'lib_'+i);
+}
+
+// FIX 1: Upload — reads file as ArrayBuffer (avoids blob-URL restrictions on
+// file:// origins) and calls loadPdfFromSource directly, no intermediate URL.
+async function loadFile(file){
+  if(!file)return;
+  if(file.type!=='application/pdf'&&!file.name.toLowerCase().endsWith('.pdf')){
+    showMessage('Only PDF files accepted.',true); return;
+  }
+  const key='up_'+file.name+'_'+file.size;
+  const title=file.name.replace(/\.pdf$/i,'')||'PDF';
+  try{
+    const buf=await file.arrayBuffer();
+    await loadPdfFromSource({data:buf},title,key);
+  }catch(err){
+    showMessage('Could not open that PDF. ('+err.message+')',true);
+  }
+}
+
+// ── NAVIGATION ────────────────────────────────────────────────────────────────
+function goToPage(value){
+  if(!pdfDoc)return;
+  speakGen++;
+  if(window.speechSynthesis) window.speechSynthesis.cancel();
+  isPaused=false; clearWordHighlight();
+  speakBtn.classList.remove('btn-active');
+  const safe=Math.max(1,Math.min(Number(value)||1,pdfDoc.numPages));
+  currentPage=safe; pageInput.value=String(safe);
+  renderPage(currentPage).catch(()=>showMessage('Could not render page.',true));
+}
+
+// ── SPEECH ────────────────────────────────────────────────────────────────────
+// FIX 2 & 3: Repeat-page and highlight bugs.
+//
+// Root causes in v4:
+//  a) speakPage called cancelSpeech() before queuing the new utterance.
+//     In Chrome, cancel() fires 'interrupted' onerror on the utterance
+//     that was JUST created (not the old one), killing it immediately.
+//  b) pauseReading was defined twice (JS takes the second one).
+//  c) The auto-advance path called speakPage() which did ++speakGen,
+//     invalidating its own generation check.
+//
+// Fix: never call cancel() right before speak(). Instead, use a tiny
+// setTimeout(0) so the browser flushes the cancel before the new speak().
+// The generation counter still guards against all stale callbacks.
+
+function stopReading(){
+  speakGen++;
+  if(window.speechSynthesis) window.speechSynthesis.cancel();
+  isPaused=false; clearWordHighlight();
+  speakBtn.classList.remove('btn-active');
+}
+
+function pauseReading(){
+  if(!window.speechSynthesis)return;
+  if(window.speechSynthesis.speaking&&!isPaused){
+    window.speechSynthesis.pause();
+    isPaused=true; speakBtn.classList.remove('btn-active');
+  }
+}
+
+// Core: queue an utterance for currentText, guarded by myGen.
+function _speak(myGen){
+  if(!currentText)return;
+
+  const utt=new SpeechSynthesisUtterance(currentText);
+  const v=voices[Number(voiceSelect.value)];
+  if(v) utt.voice=v;
+  utt.rate=Number(speedRange.value);
+  utt.pitch=Number(pitchRange.value);
+
+  // Build char-offset → word-index table for live highlighting
+  const offsets=[];
+  let cur=0;
+  for(const w of wordRects){ offsets.push(cur); cur+=w.str.length+1; }
+
+  utt.onboundary=e=>{
+    if(e.name!=='word'||myGen!==speakGen)return;
+    // Binary search for the word at this char offset
+    let lo=0,hi=offsets.length-1,found=0;
+    while(lo<=hi){
+      const m=(lo+hi)>>1;
+      if(offsets[m]<=e.charIndex){found=m;lo=m+1;}
+      else hi=m-1;
+    }
+    highlightWord(found);
+  };
+
+  utt.onstart=()=>{
+    if(myGen!==speakGen)return;
+    markPageRead(currentPage);
+    speakBtn.classList.add('btn-active');
+  };
+
+  utt.onend=()=>{
+    if(myGen!==speakGen)return;
+    clearWordHighlight(); isPaused=false; speakBtn.classList.remove('btn-active');
+
+    if(autoAdvance.checked&&pdfDoc&&currentPage<pdfDoc.numPages){
+      // Advance to next page WITHOUT calling cancel() — the utterance ended
+      // naturally so the queue is already empty. Just bump gen + render + speak.
+      const next=currentPage+1;
+      const advGen=++speakGen;
+      currentPage=next; pageInput.value=String(next);
+      speakBtn.classList.add('btn-active'); // stay green while page renders
+      renderPage(next).then(()=>{
+        if(advGen!==speakGen)return; // user navigated away during render
+        _speak(advGen);
+      }).catch(()=>showMessage('Could not render page.',true));
+    }
+  };
+
+  utt.onerror=e=>{
+    // 'interrupted' = cancel() was called deliberately — not a real error.
+    // Just clean up; the generation check prevents any unwanted side-effects.
+    if(myGen!==speakGen)return;
+    clearWordHighlight(); isPaused=false; speakBtn.classList.remove('btn-active');
+  };
+
+  window.speechSynthesis.speak(utt);
+}
+
+function speakPage(){
+  if(!window.speechSynthesis||!currentText)return;
+  if(isPaused){
+    window.speechSynthesis.resume(); isPaused=false;
+    speakBtn.classList.add('btn-active'); return;
+  }
+  // Bump gen first (kills any old callbacks), then cancel, then queue.
+  // The setTimeout(0) gives the browser one tick to process cancel()
+  // before speak() — prevents the 'interrupted' error hitting the NEW utterance.
+  const myGen=++speakGen;
+  window.speechSynthesis.cancel();
+  setTimeout(()=>{
+    if(myGen!==speakGen)return; // user already did something else in that tick
+    _speak(myGen);
+  },0);
+}
+
+// ── MARK MODE ─────────────────────────────────────────────────────────────────
+function toggleMarkMode(){
+  markModeOn=!markModeOn;
+  hlModeBtn.textContent=`✏️ Mark mode: ${markModeOn?'ON':'OFF'}`;
+  hlModeBtn.classList.toggle('hl-mode-on',markModeOn);
+  canvasStage.style.cursor=markModeOn?'crosshair':'';
+  hlHint.textContent=markModeOn?'Click a word to pin 🟡. Click a marker again to remove.':'';
+}
+
+canvasStage.addEventListener('click',e=>{
+  if(!markModeOn||!wordRects.length)return;
+  const bbox=pdfCanvas.getBoundingClientRect();
+  const sx=pdfCanvas.width/bbox.width, sy=pdfCanvas.height/bbox.height;
+  const cx=(e.clientX-bbox.left)*sx, cy=(e.clientY-bbox.top)*sy;
+  let best=-1,bestD=Infinity;
+  wordRects.forEach((w,i)=>{
+    const dx=cx-(w.x+w.w/2), dy=cy-(w.y+w.h/2);
+    const d=dx*dx+dy*dy; if(d<bestD){bestD=d;best=i;}
+  });
+  if(best<0)return;
+  const w=wordRects[best];
+  const m=getPageMarkers();
+  m.push({x:w.x,y:w.y,w:w.w,h:w.h});
+  saveMarkers(); redrawMarkers();
+});
+
+// ── EVENTS ────────────────────────────────────────────────────────────────────
+bookSelect.addEventListener('change',e=>
+  loadBook(Number(e.target.value)).catch(()=>showMessage('Could not load PDF.',true)));
+
+// FIX 1 (cont): click on drop zone opens file picker; no other click handler interferes
+dropZone.addEventListener('click',e=>{
+  e.stopPropagation(); // prevent bubble to canvasStage
+  pdfUpload.click();
+});
+pdfUpload.addEventListener('change',e=>{
+  const f=e.target.files?.[0]; if(!f)return;
+  loadFile(f);
+  e.target.value=''; // allow re-selecting same file
+});
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('active');});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('active'));
+dropZone.addEventListener('drop',e=>{
+  e.preventDefault(); dropZone.classList.remove('active');
+  const f=e.dataTransfer?.files?.[0]; if(!f)return;
+  loadFile(f);
+});
+// Full-page drop (desktop convenience)
+document.body.addEventListener('dragover',e=>e.preventDefault());
+document.body.addEventListener('drop',e=>{
+  e.preventDefault();
+  const f=e.dataTransfer?.files?.[0]; if(!f)return;
+  loadFile(f);
+});
+
+openPageBtn.addEventListener('click',()=>goToPage(pageInput.value));
+prevBtn.addEventListener('click',()=>goToPage(currentPage-1));
+nextBtn.addEventListener('click',()=>goToPage(currentPage+1));
+resetBtn.addEventListener('click',()=>goToPage(1));
+pageInput.addEventListener('keydown',e=>{if(e.key==='Enter')goToPage(pageInput.value);});
+
+speedRange.addEventListener('input',()=>speedValue.textContent=`${Number(speedRange.value).toFixed(2)}x`);
+pitchRange.addEventListener('input',()=>pitchValue.textContent=Number(pitchRange.value).toFixed(2));
+
+speakBtn.addEventListener('click',speakPage);
+pauseBtn.addEventListener('click',pauseReading);
+stopBtn.addEventListener('click',stopReading);
+hlModeBtn.addEventListener('click',toggleMarkMode);
+hlClearBtn.addEventListener('click',()=>{
+  const bm=allMarkers.get(currentBookKey);
+  if(bm)bm.set(currentPage,[]);
+  saveMarkers(); redrawMarkers();
+});
+
+window.addEventListener('resize',()=>{if(pdfDoc)renderPage(currentPage).catch(()=>{});});
+if(window.speechSynthesis) window.speechSynthesis.onvoiceschanged=setupVoices;
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+setupBooks(); setupVoices();
+if(BOOKS.length>0) loadBook(0).catch(()=>showMessage('Could not load first PDF. Check /pdfs path.',true));
+else showMessage('Add PDFs to the BOOKS array in this file.');
+</script>
+</body>
+</html>
