@@ -149,8 +149,8 @@
 
     <section class="group">
       <label for="bookSelect">Choose book</label>
-      <select id="bookSelect"></select>
-      <div class="mini">Edit the BOOKS array in this file to list your PDFs.</div>
+      <select id="bookSelect"><option disabled selected>Loading books…</option></select>
+      <div class="mini" id="booksMini">Place a <strong>books.json</strong> file next to this HTML to list your PDFs. See the hint below.</div>
     </section>
 
     <section class="upload-box">
@@ -209,10 +209,15 @@
     </section>
 
     <section class="hint-box">
-      List PDFs in the <strong>BOOKS</strong> array at top of script.<br/><br/>
-      🟡 Yellow dot = page already read.<br/>
-      🔤 Yellow rect = live word while reading.<br/>
-      ✏️ Enable <em>Mark mode</em> then click any word to pin a yellow marker. Click a marker to remove it.
+      <strong>📁 How to add books:</strong><br/>
+      Create a <code>books.json</code> file in the <em>same folder</em> as this HTML:<br/><br/>
+      <code style="font-size:0.82rem;line-height:1.8">[<br/>
+      &nbsp;&nbsp;{"title":"My Book","file":"my-book.pdf"},<br/>
+      &nbsp;&nbsp;{"title":"Another","file":"sub/other.pdf"}<br/>
+      ]</code><br/><br/>
+      PDFs must be in the same folder or a sub-folder. Only PDFs that actually exist appear in the list.<br/><br/>
+      🟡 Yellow dot = page read &nbsp;·&nbsp; 🔤 Yellow rect = live word<br/>
+      ✏️ <em>Mark mode</em> → click word to pin marker. Click marker to remove.
     </section>
   </aside>
 
@@ -250,11 +255,17 @@ import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
 
-// ── BOOK LIST — add your PDFs here ────────────────────────────────────────────
-const BOOKS = [
-  { title: 'Little Prince', file: './pdfs/little-prince.pdf' },
-  { title: 'Poem Book',     file: './pdfs/poem-book.pdf'     },
-];
+// ── BOOK DISCOVERY ────────────────────────────────────────────────────────────
+// Books are loaded from books.json in the same directory as this HTML file.
+// Each entry: { "title": "My Book", "file": "my-book.pdf" }
+// Files can be in the same folder or a sub-folder: "sub/book.pdf"
+// The reader probes each entry with a HEAD request and only shows PDFs that
+// actually exist — so the dropdown never contains broken links.
+//
+// Fallback: if books.json is missing or unreadable, the dropdown shows a
+// "No books found" placeholder and the user can still drag-and-drop any PDF.
+
+let BOOKS = []; // populated at init from books.json
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -353,13 +364,87 @@ function setupVoices(){
   speedRange.value='1.0'; speedValue.textContent='1.00x';
   pitchRange.value='1.0'; pitchValue.textContent='1.00';
 }
-function setupBooks(){
+// ── BOOK DISCOVERY ────────────────────────────────────────────────────────────
+// Resolve a path relative to this HTML file's location (works on file:// and http://)
+function resolveRelative(path){
+  // document.currentScript is null inside modules; use location instead
+  const base=window.location.href.replace(/\/[^/]*$/,'/');
+  return base+path.replace(/^\.\//,'');
+}
+
+// Probe whether a URL is reachable (HEAD request, no-cors fallback for file://)
+async function probeUrl(url){
+  try{
+    const r=await fetch(url,{method:'HEAD'});
+    return r.ok;
+  }catch{
+    // On file:// origins fetch throws — try a GET and see if it resolves
+    try{
+      const r=await fetch(url);
+      return r.ok||r.type==='basic'||r.type==='cors';
+    }catch{ return false; }
+  }
+}
+
+// Populate bookSelect from books.json, probing each file for existence.
+async function discoverBooks(){
+  const booksMini=$('booksMini');
+  bookSelect.innerHTML='<option disabled selected>Loading…</option>';
+
+  // 1. Try to fetch books.json from same directory
+  let raw=[];
+  try{
+    const url=resolveRelative('books.json');
+    const res=await fetch(url);
+    if(!res.ok)throw new Error('not found');
+    raw=await res.json();
+    if(!Array.isArray(raw))throw new Error('invalid format');
+  }catch(e){
+    // books.json missing or invalid — show friendly state
+    bookSelect.innerHTML='<option disabled selected>No books.json found</option>';
+    booksMini.innerHTML='Drop a PDF below, or create a <strong>books.json</strong> next to this file to populate this list.';
+    showMessage('No books.json found. Drag and drop a PDF to get started.');
+    return;
+  }
+
+  // 2. Probe each entry — only keep PDFs that actually exist
+  const reachable=[];
+  await Promise.all(raw.map(async entry=>{
+    if(!entry.file||!entry.title)return;
+    const url=resolveRelative(entry.file);
+    const ok=await probeUrl(url);
+    if(ok) reachable.push({title:entry.title, file:entry.file, url});
+  }));
+
+  // Preserve original order from books.json
+  BOOKS=raw.filter(e=>reachable.some(r=>r.file===e.file))
+           .map(e=>({...e, url:reachable.find(r=>r.file===e.file).url}));
+
+  if(BOOKS.length===0){
+    bookSelect.innerHTML='<option disabled selected>No PDFs found in this folder</option>';
+    booksMini.innerHTML='PDFs listed in <strong>books.json</strong> were not found next to this HTML. Check the file names.';
+    showMessage('No PDFs could be loaded. Check that your PDF files are in the same folder as books.json and this HTML file.');
+    return;
+  }
+
+  // 3. Populate dropdown
   bookSelect.innerHTML='';
   BOOKS.forEach((b,i)=>{
     const o=document.createElement('option');
     o.value=i; o.textContent=b.title;
     bookSelect.appendChild(o);
   });
+  booksMini.innerHTML=`${BOOKS.length} book${BOOKS.length!==1?'s':''} found from <strong>books.json</strong>.`;
+
+  // Auto-load first book
+  loadBook(0).catch(()=>showMessage('Could not open the first PDF.',true));
+}
+
+async function loadBook(i){
+  // Use the pre-resolved URL when available (avoids re-resolving)
+  const b=BOOKS[i];
+  const src=b.url||resolveRelative(b.file);
+  await loadPdfFromSource(src, b.title, 'lib_'+i);
 }
 
 // ── UI HELPERS ────────────────────────────────────────────────────────────────
@@ -486,10 +571,6 @@ async function loadPdfFromSource(source,title,key){
   pdfDoc=await pdfjsLib.getDocument(source).promise;
   updatePageStatus();
   await renderPage(currentPage);
-}
-
-async function loadBook(i){
-  await loadPdfFromSource(BOOKS[i].file, BOOKS[i].title, 'lib_'+i);
 }
 
 // FIX 1: Upload — reads file as ArrayBuffer (avoids blob-URL restrictions on
@@ -704,12 +785,11 @@ hlClearBtn.addEventListener('click',()=>{
 });
 
 window.addEventListener('resize',()=>{if(pdfDoc)renderPage(currentPage).catch(()=>{});});
-if(window.speechSynthesis) window.speechSynthesis.onvoiceschanged=setupVoices;
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
-setupBooks(); setupVoices();
-if(BOOKS.length>0) loadBook(0).catch(()=>showMessage('Could not load first PDF. Check /pdfs path.',true));
-else showMessage('Add PDFs to the BOOKS array in this file.');
+setupVoices();
+if(window.speechSynthesis) window.speechSynthesis.onvoiceschanged=setupVoices;
+discoverBooks();
 </script>
 </body>
 </html>
