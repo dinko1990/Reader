@@ -1,5 +1,3 @@
 [
-  { "title": "Little Prince",  "file": "little-prince.pdf"  },
-  { "title": "Poem Book",      "file": "poem-book.pdf"       },
-  { "title": "My Novel",       "file": "my-novel.pdf"        }
+   { "title": "getting-to-yes",  "file": "getting-to-yes.pdf"  }
 ]
